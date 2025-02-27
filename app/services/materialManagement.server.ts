@@ -75,11 +75,10 @@ export async function createMaterial(data: {
   totalWeight: number;
   weightUnit: string;
   threshold?: number;
-  variantAttribute?: string;
-  variantValue?: string;
   variants: Array<{
     id: string;
     consumptionRequirement: number;
+    unitWeightUnit: string;
   }>;
   request: Request;
 }) {
@@ -89,12 +88,9 @@ export async function createMaterial(data: {
     totalWeight, 
     weightUnit, 
     threshold, 
-    variantAttribute,
-    variantValue,
     variants,
     request 
   } = data;
-
 
   try {
     return await prisma.$transaction(async (tx) => {
@@ -106,8 +102,6 @@ export async function createMaterial(data: {
           totalWeight,
           weightUnit,
           threshold,
-          variantAttribute,
-          variantValue,
           runningBalance: totalWeight,
         },
       });
@@ -127,8 +121,6 @@ export async function createMaterial(data: {
           ? variant.id 
           : `gid://shopify/ProductVariant/${variant.id}`;
 
-
-
         const { admin } = await authenticate.admin(request);
         
         const response = await admin.graphql(VARIANT_QUERY, {
@@ -137,22 +129,20 @@ export async function createMaterial(data: {
 
         const responseJson = await response.json();
         
-
         if (!responseJson?.data?.productVariant) {
           throw new Error(`Failed to fetch variant data for ${variant.id}`);
         }
 
         const { productVariant } = responseJson.data;
         
-
         try {
           return await tx.materialVariant.create({
             data: {
               materialId: material.id,
               variantId: variant.id,
               variantName: `${productVariant.product.title} - ${productVariant.title}`,
-              unitWeight: 0,
               consumptionRequirement: variant.consumptionRequirement,
+              unitWeightUnit: variant.unitWeightUnit,
             },
           });
         } catch (error: any) {
@@ -163,7 +153,6 @@ export async function createMaterial(data: {
 
       const createdVariants = await Promise.all(variantPromises);
 
-
       // Create initial stock movement
       const stockMovement = await tx.stockMovement.create({
         data: {
@@ -173,7 +162,6 @@ export async function createMaterial(data: {
           remainingStock: totalWeight,
         },
       });
-
 
       // Fetch the complete material with its relationships using the transaction
       const createdMaterial = await tx.material.findUnique({
@@ -205,14 +193,13 @@ export async function updateMaterial(data: {
   totalWeight: number;
   weightUnit: string;
   threshold?: number;
-  variantAttribute?: string;
-  variantValue?: string;
   variants: Array<{
     id: string;
     variantId: string;
     variantName: string;
     consumptionRequirement: number;
-    unitWeight: number;
+    unitWeightUnit: string;
+    estimatedQuantity?: number;
   }>;
 }) {
   const { 
@@ -222,8 +209,6 @@ export async function updateMaterial(data: {
     totalWeight, 
     weightUnit, 
     threshold, 
-    variantAttribute,
-    variantValue,
     variants,
   } = data;
 
@@ -237,8 +222,6 @@ export async function updateMaterial(data: {
           totalWeight,
           weightUnit,
           threshold,
-          variantAttribute,
-          variantValue,
         },
       });
 
@@ -273,8 +256,10 @@ export async function updateMaterial(data: {
           return tx.materialVariant.update({
             where: { id: existingVariant.id },
             data: {
-              variantName: variant.variantName,  // Include variantName in update
+              variantName: variant.variantName,
               consumptionRequirement: variant.consumptionRequirement,
+              unitWeightUnit: variant.unitWeightUnit,
+              estimatedQuantity: variant.estimatedQuantity,
             },
           });
         } else {
@@ -283,9 +268,10 @@ export async function updateMaterial(data: {
             data: {
               materialId: id,
               variantId: variant.variantId,
-              variantName: variant.variantName,  // Include variantName in create
-              unitWeight: variant.unitWeight || 0,
+              variantName: variant.variantName,
               consumptionRequirement: variant.consumptionRequirement,
+              unitWeightUnit: variant.unitWeightUnit,
+              estimatedQuantity: variant.estimatedQuantity,
             },
           });
         }

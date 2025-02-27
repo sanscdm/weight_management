@@ -33,30 +33,31 @@
  *    - Only selects variants that exactly match the attribute criteria
  */
 
-import { Card, ResourceList, ResourceItem, TextField, Text, BlockStack, Box, Spinner, EmptyState, Checkbox, InlineStack } from "@shopify/polaris";
+import { Card, ResourceList, ResourceItem, TextField, Text, BlockStack, Box, Spinner, EmptyState, Checkbox, InlineStack, Select } from "@shopify/polaris";
 import type { MaterialVariant } from "@prisma/client";
-import { useState, useCallback, useEffect } from "react";
+import type { SerializeFrom } from "@remix-run/node";
+import { useState, useCallback } from "react";
+import { WeightUnit, estimateQuantity } from "../utils/weightConversion";
 
-interface ShopifyVariant {
-  id: string;
-  variantName: string;
-  options?: {
-    name: string;
-    value: string;
-  }[];
-}
+const WEIGHT_UNITS = [
+  { label: "Kilograms", value: "kg" },
+  { label: "Grams", value: "g" },
+  { label: "Pounds", value: "lb" },
+  { label: "Ounces", value: "oz" },
+];
 
 interface VariantSelectorProps {
-  variants: ShopifyVariant[];
+  variants: SerializeFrom<MaterialVariant[]>;
   selectedVariants: Array<{
     id: string;
     consumptionRequirement: number;
+    unitWeightUnit: WeightUnit;
   }>;
   onVariantSelect: (variantId: string) => void;
   onConsumptionUpdate: (variantId: string, consumption: string) => void;
-  variantAttribute?: string;
-  variantValue?: string;
-  weightUnit: string;
+  onUnitWeightUnitUpdate: (variantId: string, unit: WeightUnit) => void;
+  weightUnit: WeightUnit;
+  materialQuantity: number;
 }
 
 export function VariantSelector({
@@ -64,172 +65,111 @@ export function VariantSelector({
   selectedVariants,
   onVariantSelect,
   onConsumptionUpdate,
-  variantAttribute,
-  variantValue,
+  onUnitWeightUnitUpdate,
   weightUnit,
+  materialQuantity,
 }: VariantSelectorProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [isFiltering, setIsFiltering] = useState(false);
-  const [filteredVariants, setFilteredVariants] = useState(variants);
 
-  const isVariantSelected = (variantId: string) =>
-    selectedVariants.some((v) => v.id === variantId);
-
-  const getConsumptionRequirement = (variantId: string) =>
-    selectedVariants.find((v) => v.id === variantId)?.consumptionRequirement.toString() || "";
-
-  // Helper function to check if a variant matches the attribute criteria
-  const matchesAttributeCriteria = useCallback((variant: ShopifyVariant) => {
-    if (!variantAttribute || !variantValue) return true;
-
-    // First try to match by options
-    const matchingOption = variant.options?.find(
-      opt => opt.name.toLowerCase() === variantAttribute.toLowerCase() &&
-            opt.value.toLowerCase() === variantValue.toLowerCase()
-    );
-    if (matchingOption) return true;
-
-    // Fallback to matching in name
-    const searchTerm = `${variantAttribute} ${variantValue}`.toLowerCase();
-    return variant.variantName.toLowerCase().includes(searchTerm);
-  }, [variantAttribute, variantValue]);
-
-  // Update filtered variants when search or attributes change
-  useEffect(() => {
-    setIsFiltering(true);
-    const timeoutId = setTimeout(() => {
-      const filtered = variants.filter(variant => {
-        const variantNameLower = variant.variantName.toLowerCase();
-        const searchQueryLower = searchQuery.toLowerCase();
-
-        // If there's a search query, use it exclusively
-        if (searchQueryLower !== "") {
-          return variantNameLower.includes(searchQueryLower);
-        }
-
-        // Otherwise, use attribute filtering
-        return matchesAttributeCriteria(variant);
-      });
-
-      setFilteredVariants(filtered);
-      setIsFiltering(false);
-    }, 300);
-
-    return () => clearTimeout(timeoutId);
-  }, [searchQuery, variants, matchesAttributeCriteria]);
-
-  // Auto-select variants when attribute criteria change
-  useEffect(() => {
-    if (variantAttribute && variantValue) {
-      variants.forEach(variant => {
-        const matchingOption = variant.options?.find(
-          opt => opt.name.toLowerCase() === variantAttribute.toLowerCase() &&
-                opt.value.toLowerCase() === variantValue.toLowerCase()
-        );
-        
-        if (matchingOption && !isVariantSelected(variant.id)) {
-          onVariantSelect(variant.id);
-        }
-      });
-    }
-  }, [variantAttribute, variantValue, variants, onVariantSelect]);
-
-  const handleSearchChange = useCallback((value: string) => {
-    setSearchQuery(value);
-  }, []);
-
-  const renderEmptyState = (message: string) => (
-    <EmptyState
-      heading="No variants found"
-      image=""
-    >
-      <p>{message}</p>
-    </EmptyState>
+  const isVariantSelected = useCallback(
+    (variantId: string) => selectedVariants.some((v) => v.id === variantId),
+    [selectedVariants]
   );
 
-  const activeFilter = searchQuery 
-    ? `Searching for: "${searchQuery}"`
-    : variantAttribute && variantValue 
-      ? `Filtering by: ${variantAttribute} = ${variantValue}`
-      : null;
+  const getConsumptionRequirement = useCallback(
+    (variantId: string) => {
+      const variant = selectedVariants.find((v) => v.id === variantId);
+      return variant ? variant.consumptionRequirement.toString() : "0";
+    },
+    [selectedVariants]
+  );
+
+  const getUnitWeightUnit = useCallback(
+    (variantId: string) => {
+      const variant = selectedVariants.find((v) => v.id === variantId);
+      return variant ? variant.unitWeightUnit : "kg";
+    },
+    [selectedVariants]
+  );
+
+  const getEstimatedQuantity = useCallback(
+    (variantId: string) => {
+      const variant = selectedVariants.find((v) => v.id === variantId);
+      if (!variant || !variant.consumptionRequirement) return 0;
+      
+      return estimateQuantity(
+        materialQuantity,
+        weightUnit as WeightUnit,
+        variant.consumptionRequirement,
+        variant.unitWeightUnit as WeightUnit
+      );
+    },
+    [selectedVariants, materialQuantity, weightUnit]
+  );
 
   return (
     <Card>
       <BlockStack gap="400">
-        <Box padding="400">
-          <BlockStack gap="400">
-            <Text variant="headingMd" as="h3">
-              Available Variants
-            </Text>
-            <TextField
-              label="Search variants"
-              value={searchQuery}
-              onChange={handleSearchChange}
-              autoComplete="off"
-              placeholder="Search by product name, variant name, or attributes"
-              clearButton
-              onClearButtonClick={() => setSearchQuery("")}
-              helpText="Search will override attribute filters"
-            />
-            {activeFilter && (
-              <Text variant="bodyMd" as="p" tone="subdued">
-                {activeFilter}
-              </Text>
-            )}
-          </BlockStack>
-        </Box>
-        {isFiltering ? (
-          <Box padding="400">
-            <div style={{ textAlign: 'center' }}>
-              <Spinner accessibilityLabel="Loading variants" size="large" />
-            </div>
-          </Box>
-        ) : filteredVariants.length === 0 ? (
-          <Box padding="400">
-            {renderEmptyState("Try adjusting your search or filter criteria")}
-          </Box>
+        <TextField
+          label="Search variants"
+          value={searchQuery}
+          onChange={setSearchQuery}
+          autoComplete="off"
+          placeholder="Search by name..."
+        />
+        {variants.length === 0 ? (
+          <EmptyState heading="No variants found" image="">
+            <p>No variants are available to select.</p>
+          </EmptyState>
         ) : (
           <ResourceList
             resourceName={{ singular: "variant", plural: "variants" }}
-            items={filteredVariants}
+            items={variants.filter((variant) =>
+              variant.variantName.toLowerCase().includes(searchQuery.toLowerCase())
+            )}
             renderItem={(variant) => {
               const isSelected = isVariantSelected(variant.id);
+              const estimatedQty = getEstimatedQuantity(variant.id);
+
               return (
-                <ResourceItem
+                <ResourceItem 
                   id={variant.id}
-                  onClick={(e: any) => {
-                    e.preventDefault();
-                    onVariantSelect(variant.id);
-                  }}
-                  verticalAlignment="center"
+                  onClick={() => {}}
                 >
                   <BlockStack gap="200">
-                    <InlineStack gap="400" align="start">
+                    <InlineStack gap="200" align="space-between">
                       <Checkbox
-                        label=""
+                        label={variant.variantName}
                         checked={isSelected}
                         onChange={() => onVariantSelect(variant.id)}
                       />
-                      <Text variant="bodyMd" as="span">
-                        {variant.variantName}
-                      </Text>
                     </InlineStack>
-                    {variant.options && variant.options.length > 0 && (
-                      <Text variant="bodySm" as="p" tone="subdued">
-                        {variant.options.map(opt => `${opt.name}: ${opt.value}`).join(', ')}
-                      </Text>
-                    )}
+
                     {isSelected && (
                       <div onClick={(e) => e.stopPropagation()}>
-                        <TextField
-                          label={`Material Required (${weightUnit})`}
-                          type="number"
-                          value={getConsumptionRequirement(variant.id)}
-                          onChange={(value) => onConsumptionUpdate(variant.id, value)}
-                          autoComplete="off"
-                          min={0}
-                          step={0.01}
-                        />
+                        <BlockStack gap="200">
+                          <InlineStack gap="200" align="start">
+                            <TextField
+                              label="Weight per Unit"
+                              type="number"
+                              value={getConsumptionRequirement(variant.id)}
+                              onChange={(value) => onConsumptionUpdate(variant.id, value)}
+                              autoComplete="off"
+                              min={0}
+                              step={0.01}
+                            />
+                            <Select
+                              label="Unit"
+                              options={WEIGHT_UNITS}
+                              value={getUnitWeightUnit(variant.id)}
+                              onChange={(value) => onUnitWeightUnitUpdate(variant.id, value as WeightUnit)}
+                            />
+                          </InlineStack>
+
+                          <Text as="p" variant="bodyMd">
+                            Estimated Quantity: {estimatedQty} units
+                          </Text>
+                        </BlockStack>
                       </div>
                     )}
                   </BlockStack>

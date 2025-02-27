@@ -15,8 +15,9 @@ export interface MaterialVariant {
   materialId: string;
   variantId: string;
   variantName: string;
-  unitWeight: number;
   consumptionRequirement: number;
+  unitWeightUnit: string;
+  estimatedQuantity?: number;
   createdAt: string;
   updatedAt: string;
 }

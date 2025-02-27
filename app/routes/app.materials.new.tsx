@@ -64,6 +64,7 @@ import { createMaterial } from "../services/materialManagement.server";
 import type { Material, MaterialVariant, StockMovement } from "@prisma/client";
 import { VariantSelector } from "../components/VariantSelector";
 import { LinkedVariantsSection } from "../components/LinkedVariantsSection";
+import type { WeightUnit } from "../utils/weightConversion";
 
 interface ShopifyVariant {
   id: string;
@@ -151,8 +152,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const totalWeight = parseFloat(formData.get("totalWeight") as string);
     const weightUnit = formData.get("weightUnit") as string;
     const threshold = formData.get("threshold") as string;
-    const variantAttribute = formData.get("variantAttribute") as string;
-    const variantValue = formData.get("variantValue") as string;
     
     // Validate required fields
     if (!materialName || !totalWeight || !weightUnit) {
@@ -223,11 +222,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         shopDomain: session.shop,
         materialName,
         totalWeight,
-        weightUnit,
-        threshold: threshold ? parseFloat(threshold) : undefined,
-        variantAttribute: variantAttribute || undefined,
-        variantValue: variantValue || undefined,
-        variants: processedVariants,
+        weightUnit: weightUnit as WeightUnit,
+        threshold: threshold ? parseFloat(threshold.toString()) : undefined,
+        variants: selectedVariants.map(variant => ({
+          id: variant.id,
+          consumptionRequirement: variant.consumptionRequirement,
+          unitWeightUnit: variant.unitWeightUnit
+        })),
         request,
       });
 
@@ -253,7 +254,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         status: "error", 
         error: error.message || "Failed to create material" 
       },
-      { status: 400 }
+      { status: 500 }
     );
   }
 };
@@ -263,63 +264,50 @@ type ActionData =
   | { status: "error"; error: string };
 
 export default function NewMaterial() {
-  const { variants } = useLoaderData<typeof loader>();
+  const { variants: shopifyVariants } = useLoaderData<typeof loader>();
   const actionData = useActionData<ActionData>();
   const submit = useSubmit();
   const navigate = useNavigate();
 
   const [materialName, setMaterialName] = useState("");
   const [totalWeight, setTotalWeight] = useState("");
-  const [weightUnit, setWeightUnit] = useState("kg");
+  const [weightUnit, setWeightUnit] = useState<WeightUnit>("kg");
   const [threshold, setThreshold] = useState("");
-  const [variantAttribute, setVariantAttribute] = useState("");
-  const [variantValue, setVariantValue] = useState("");
-  const [selectedVariants, setSelectedVariants] = useState<Array<{ id: string; consumptionRequirement: number }>>([]);
-  const [showErrorToast, setShowErrorToast] = useState(false);
+  const [selectedVariants, setSelectedVariants] = useState<Array<{
+    id: string;
+    consumptionRequirement: number;
+    unitWeightUnit: WeightUnit;
+  }>>([]);
+
+  const [toastActive, setToastActive] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastError, setToastError] = useState(false);
 
   useEffect(() => {
-    if (actionData?.status === "error") {
-      setShowErrorToast(true);
+    if (actionData) {
+      if (actionData.status === "success") {
+        setToastMessage("Material created successfully");
+        setToastError(false);
+      } else {
+        setToastMessage(actionData.error);
+        setToastError(true);
+      }
+      setToastActive(true);
     }
   }, [actionData]);
 
   const handleSubmit = useCallback(() => {
-    // Validate form data
-    if (!materialName || !totalWeight || !weightUnit) {
-      setShowErrorToast(true);
-      return;
-    }
-
-    if (!selectedVariants.length) {
-      setShowErrorToast(true);
-      return;
-    }
-
     const formData = new FormData();
     formData.append("materialName", materialName);
     formData.append("totalWeight", totalWeight);
     formData.append("weightUnit", weightUnit);
-    
     if (threshold) {
       formData.append("threshold", threshold);
     }
-    if (variantAttribute) {
-      formData.append("variantAttribute", variantAttribute);
-    }
-    if (variantValue) {
-      formData.append("variantValue", variantValue);
-    }
-    
-    // Ensure all variants have consumption requirements
-    const validatedVariants = selectedVariants.map(v => ({
-      ...v,
-      consumptionRequirement: v.consumptionRequirement || 0
-    }));
-    
-    formData.append("selectedVariants", JSON.stringify(validatedVariants));
+    formData.append("selectedVariants", JSON.stringify(selectedVariants));
 
     submit(formData, { method: "post" });
-  }, [materialName, totalWeight, weightUnit, threshold, variantAttribute, variantValue, selectedVariants, submit]);
+  }, [materialName, totalWeight, weightUnit, threshold, selectedVariants, submit]);
 
   const handleVariantSelect = useCallback((variantId: string) => {
     setSelectedVariants((prev) => {
@@ -327,9 +315,13 @@ export default function NewMaterial() {
       if (isSelected) {
         return prev.filter((v) => v.id !== variantId);
       }
-      return [...prev, { id: variantId, consumptionRequirement: 0 }];
+      return [...prev, { 
+        id: variantId, 
+        consumptionRequirement: 0, 
+        unitWeightUnit: weightUnit as WeightUnit 
+      }];
     });
-  }, []);
+  }, [weightUnit]);
 
   const handleConsumptionUpdate = useCallback((variantId: string, consumption: string) => {
     setSelectedVariants((prev) =>
@@ -341,112 +333,82 @@ export default function NewMaterial() {
     );
   }, []);
 
-  const handleUnlinkVariant = useCallback((variantId: string) => {
-    setSelectedVariants((prev) => prev.filter((v) => v.id !== variantId));
+  const handleUnitWeightUnitUpdate = useCallback((variantId: string, unit: WeightUnit) => {
+    setSelectedVariants((prev) =>
+      prev.map((v) =>
+        v.id === variantId
+          ? { ...v, unitWeightUnit: unit }
+          : v
+      )
+    );
   }, []);
 
   return (
-    <Page
-      title="Register New Material"
-      backAction={{ content: "Materials", url: "/app" }}
-    >
+    <Page title="Register New Material">
       <Layout>
         <Layout.Section>
-          {showErrorToast && (
+          {toastActive && (
             <Toast
-              content={actionData?.status === "error" ? actionData.error : "Please fill in all required fields"}
-              error
-              onDismiss={() => setShowErrorToast(false)}
+              content={toastMessage}
+              error={toastError}
+              onDismiss={() => setToastActive(false)}
             />
           )}
-
           <Form onSubmit={handleSubmit}>
-            <FormLayout>
+            <BlockStack gap="500">
               <Card>
-                <Text variant="headingMd" as="h3">Material Details</Text>
-                <FormLayout>
-                  <TextField
-                    label="Material Name*"
-                    value={materialName}
-                    onChange={setMaterialName}
-                    autoComplete="off"
-                  />
-                  <FormLayout.Group>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">Material Details</Text>
+                  <FormLayout>
                     <TextField
-                      label="Total Weight*"
-                      value={totalWeight}
-                      onChange={setTotalWeight}
+                      label="Material Name"
+                      value={materialName}
+                      onChange={setMaterialName}
+                      autoComplete="off"
+                    />
+                    <FormLayout.Group>
+                      <TextField
+                        label="Total Weight"
+                        type="number"
+                        value={totalWeight}
+                        onChange={setTotalWeight}
+                        autoComplete="off"
+                      />
+                      <Select
+                        label="Weight Unit"
+                        options={WEIGHT_UNITS}
+                        value={weightUnit}
+                        onChange={(value) => setWeightUnit(value as WeightUnit)}
+                      />
+                    </FormLayout.Group>
+                    <TextField
+                      label="Threshold"
                       type="number"
+                      value={threshold}
+                      onChange={setThreshold}
                       autoComplete="off"
+                      helpText="Set a minimum threshold for low stock alerts"
                     />
-                    <Select
-                      label="Weight Unit*"
-                      options={WEIGHT_UNITS}
-                      value={weightUnit}
-                      onChange={setWeightUnit}
-                    />
-                  </FormLayout.Group>
-                  <TextField
-                    label="Threshold"
-                    value={threshold}
-                    onChange={setThreshold}
-                    type="number"
-                    autoComplete="off"
-                    helpText="Set a minimum threshold for low stock alerts"
-                  />
-                  <FormLayout.Group>
-                    <TextField
-                      label="Variant Attribute"
-                      value={variantAttribute}
-                      onChange={setVariantAttribute}
-                      autoComplete="off"
-                      placeholder="e.g., Color, Size"
-                      helpText="The type of variant attribute to filter by"
-                    />
-                    <TextField
-                      label="Variant Value"
-                      value={variantValue}
-                      onChange={setVariantValue}
-                      autoComplete="off"
-                      placeholder="e.g., Red, Large"
-                      helpText="The specific value of the variant attribute"
-                    />
-                  </FormLayout.Group>
-                </FormLayout>
+                  </FormLayout>
+                </BlockStack>
               </Card>
 
-              <LinkedVariantsSection
-                variants={selectedVariants.map(v => {
-                  const matchingVariant = variants.find((variant: ShopifyVariant) => variant.id === v.id);
-                  return {
-                    variantId: v.id,
-                    variantName: matchingVariant?.variantName || '',
-                    consumptionRequirement: v.consumptionRequirement,
-                    materialId: '',
-                    id: '',
-                    createdAt: new Date().toISOString(),
-                    updatedAt: new Date().toISOString(),
-                    unitWeight: 0
-                  };
-                })}
-                onUnlinkVariant={handleUnlinkVariant}
-                weightUnit={weightUnit}
-              />
-
               <VariantSelector
-                variants={variants}
+                variants={shopifyVariants}
                 selectedVariants={selectedVariants}
                 onVariantSelect={handleVariantSelect}
                 onConsumptionUpdate={handleConsumptionUpdate}
-                variantAttribute={variantAttribute}
-                variantValue={variantValue}
+                onUnitWeightUnitUpdate={handleUnitWeightUnitUpdate}
                 weightUnit={weightUnit}
+                materialQuantity={parseFloat(totalWeight)}
               />
 
-              <Button submit variant="primary">
-                Register Material
-              </Button>
-            </FormLayout>
+              <div style={{ marginTop: "1rem" }}>
+                <Button submit>
+                  Register Material
+                </Button>
+              </div>
+            </BlockStack>
           </Form>
         </Layout.Section>
       </Layout>

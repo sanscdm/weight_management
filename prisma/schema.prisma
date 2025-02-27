@@ -58,8 +58,6 @@ model Material {
   weightUnit     String            @default("kg") // Common units: kg, g, oz, lb
   runningBalance Float             
   threshold      Float?            
-  variantAttribute String?         // e.g., "color", "size"
-  variantValue    String?         // e.g., "red", "large"
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
@@ -74,8 +72,9 @@ model MaterialVariant {
   materialId             String   
   variantId              String   @unique 
   variantName            String   
-  unitWeight             Float    
   consumptionRequirement Float    
+  unitWeightUnit         String   @default("kg")
+  estimatedQuantity      Float?   
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 

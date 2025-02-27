@@ -42,8 +42,7 @@ export default function MaterialDetails() {
   const navigate = useNavigate();
   const variantRows = material.variants.map((variant) => [
     variant.variantName,
-    variant.consumptionRequirement.toString(),
-    variant.unitWeight.toString(),
+    `${variant.consumptionRequirement} ${variant.unitWeightUnit}`,
     <Badge
       key={variant.id}
       tone={
@@ -118,13 +117,12 @@ export default function MaterialDetails() {
             <Text variant="headingMd" as="h3">Linked Variants</Text>
             <Box>
               <DataTable
-                columnContentTypes={["text", "numeric", "numeric", "text"]}
-              headings={[
-                "Variant Name",
-                "Consumption per Unit",
-                "Original Weight",
-                "Status",
-              ]}
+                columnContentTypes={["text", "text", "text"]}
+                headings={[
+                  "Variant Name",
+                  "Weight per Unit",
+                  "Status",
+                ]}
                 rows={variantRows}
               />
             </Box>

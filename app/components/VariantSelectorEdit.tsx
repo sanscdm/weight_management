@@ -27,8 +27,6 @@ interface VariantSelectorEditProps {
   }>;
   onVariantSelect: (variantId: string) => void;
   onConsumptionUpdate: (variantId: string, consumption: string) => void;
-  variantAttribute?: string;
-  variantValue?: string;
   weightUnit: string;
 }
 
@@ -37,8 +35,6 @@ export function VariantSelectorEdit({
   selectedVariants,
   onVariantSelect,
   onConsumptionUpdate,
-  variantAttribute,
-  variantValue,
   weightUnit,
 }: VariantSelectorEditProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -57,20 +53,7 @@ export function VariantSelectorEdit({
       const filtered = variants.filter(variant => {
         const variantNameLower = variant.variantName.toLowerCase();
         const searchQueryLower = searchQuery.toLowerCase();
-
-        // If there's a search query, use it exclusively
-        if (searchQueryLower !== "") {
-          return variantNameLower.includes(searchQueryLower);
-        }
-
-        // Otherwise, use variant attribute and value if provided
-        if (variantAttribute && variantValue) {
-          const attributeValueLower = variantValue.toLowerCase();
-          return variantNameLower.includes(attributeValueLower);
-        }
-
-        // If no filters are active, show all variants
-        return true;
+        return variantNameLower.includes(searchQueryLower);
       });
 
       setFilteredVariants(filtered);
@@ -78,7 +61,7 @@ export function VariantSelectorEdit({
     }, 300);
 
     return () => clearTimeout(timeoutId);
-  }, [searchQuery, variants, variantAttribute, variantValue]);
+  }, [searchQuery, variants]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
@@ -95,9 +78,7 @@ export function VariantSelectorEdit({
 
   const activeFilter = searchQuery 
     ? `Searching for: "${searchQuery}"`
-    : variantAttribute && variantValue 
-      ? `Filtering by: ${variantAttribute} = ${variantValue}`
-      : null;
+    : null;
 
   return (
     <Card>
@@ -112,10 +93,9 @@ export function VariantSelectorEdit({
               value={searchQuery}
               onChange={handleSearchChange}
               autoComplete="off"
-              placeholder="Search by product name, variant name, or attributes"
+              placeholder="Search by product name or variant name"
               clearButton
               onClearButtonClick={() => setSearchQuery("")}
-              helpText="Search will override attribute filters"
             />
             {activeFilter && (
               <Text variant="bodyMd" as="p" tone="subdued">
@@ -132,7 +112,7 @@ export function VariantSelectorEdit({
           </Box>
         ) : filteredVariants.length === 0 ? (
           <Box padding="400">
-            {renderEmptyState("Try adjusting your search or filter criteria")}
+            {renderEmptyState("Try adjusting your search criteria")}
           </Box>
         ) : (
           <ResourceList

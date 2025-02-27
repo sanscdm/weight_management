@@ -92,7 +92,7 @@ export default function MaterialsList() {
       <Button onClick={() => navigate(`/app/materials/${material.id}`)}>
         View
       </Button>
-      <Button onClick={() => navigate(`/app/materials/${material.id}/edit`)}>
+      <Button onClick={() => navigate(`/edit/materials/${material.id}`)}>
         Edit
       </Button>
     </ButtonGroup>

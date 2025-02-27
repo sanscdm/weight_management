@@ -75,9 +75,12 @@ import { useActionData, useLoaderData, useSubmit, useNavigate } from "@remix-run
 import { authenticate } from "../shopify.server";
 import type { Material, MaterialVariant } from "@prisma/client";
 import { getMaterial, updateMaterial } from "../services/materialManagement.server";
-import { VariantSelectorEdit } from "../components/VariantSelectorEdit";
+import { VariantSelector } from "../components/VariantSelector";
 import { LinkedVariantsSection } from "../components/LinkedVariantsSection";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
+import type { WeightUnit } from "../utils/weightConversion";
+import { estimateQuantity } from "../utils/weightConversion";
+
 export const links = () => [{ rel: "stylesheet", href: polarisStyles }];
 
 const WEIGHT_UNITS = [
@@ -127,12 +130,24 @@ interface MaterialWithVariants extends Material {
 type SerializedMaterialVariant = SerializeFrom<MaterialVariant>;
 
 interface ShopifyVariant {
+  variantId: string;
+  variantName: string;
+}
+
+interface SelectedVariant {
   id: string;
-  title: string;
-  options?: {
-    name: string;
-    value: string;
-  }[];
+  variantName: string;
+  consumptionRequirement: number;
+  unitWeightUnit: WeightUnit;
+}
+
+interface ProcessedVariant {
+  id: string;
+  variantId: string;
+  variantName: string;
+  consumptionRequirement: number;
+  unitWeightUnit: WeightUnit;
+  estimatedQuantity: number;
 }
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
@@ -199,76 +214,55 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request, params }: ActionFunctionArgs) => {
-  const { session, admin } = await authenticate.admin(request);
-  
-  if (!params.id) {
-    throw new Error("Material ID is required");
-  }
+  const { session } = await authenticate.admin(request);
 
   try {
     const formData = await request.formData();
-    const materialName = formData.get("materialName") as string;
-    const totalWeight = parseFloat(formData.get("totalWeight") as string);
-    const weightUnit = formData.get("weightUnit") as string;
-    const threshold = formData.get("threshold") as string;
-    const variantAttribute = formData.get("variantAttribute") as string;
-    const variantValue = formData.get("variantValue") as string;
-    const selectedVariantsStr = formData.get("selectedVariants") as string;
+    const materialName = formData.get("materialName");
+    const totalWeightStr = formData.get("totalWeight");
+    const weightUnit = formData.get("weightUnit");
+    const thresholdStr = formData.get("threshold");
+    const selectedVariantsStr = formData.get("selectedVariants");
 
-    console.log('Action: Received selectedVariants:', selectedVariantsStr);
+    if (!materialName || !totalWeightStr || !weightUnit || !selectedVariantsStr || 
+        typeof materialName !== 'string' || typeof weightUnit !== 'string') {
+      return json(
+        { status: "error", error: "Material name, total weight, and variants are required" },
+        { status: 400 }
+      );
+    }
+
+    const totalWeight = parseFloat(totalWeightStr.toString());
 
     let selectedVariants;
     try {
-      selectedVariants = JSON.parse(selectedVariantsStr);
-      console.log('Action: Parsed selectedVariants:', selectedVariants);
-
+      selectedVariants = JSON.parse(selectedVariantsStr.toString());
+      
       if (!Array.isArray(selectedVariants)) {
         throw new Error("Invalid variant data");
       }
 
-      // Fetch fresh variant data from Shopify for all variants
-      const variantPromises = selectedVariants.map(async (variant) => {
-        console.log('Action: Processing variant:', variant);
-
-        const variantGid = variant.id.startsWith('gid://') 
-          ? variant.id 
-          : `gid://shopify/ProductVariant/${variant.id}`;
-
-        const response = await admin.graphql(VARIANT_QUERY, {
-          variables: { id: variantGid },
-        });
-
-        const responseJson = await response.json();
-        console.log('Action: Shopify response for variant:', responseJson);
-
-        if (!responseJson?.data?.productVariant) {
-          throw new Error(`Failed to fetch variant data for ${variant.id}`);
-        }
-
-        const { productVariant } = responseJson.data;
-        const processedVariant = {
-          id: variant.id,
-          variantId: variant.id,
-          variantName: `${productVariant.product.title} - ${productVariant.title}`,
-          consumptionRequirement: variant.consumptionRequirement || 0,
-          unitWeight: 0
-        };
-        console.log('Action: Processed variant:', processedVariant);
-        return processedVariant;
-      });
-
-      const processedVariants = await Promise.all(variantPromises);
-      console.log('Action: All processed variants:', processedVariants);
+      const processedVariants: ProcessedVariant[] = selectedVariants.map(variant => ({
+        id: variant.id,
+        variantId: variant.id,
+        variantName: variant.variantName,
+        consumptionRequirement: variant.consumptionRequirement,
+        unitWeightUnit: variant.unitWeightUnit,
+        estimatedQuantity: estimateQuantity(
+          totalWeight,
+          weightUnit as WeightUnit,
+          variant.consumptionRequirement,
+          variant.unitWeightUnit
+        )
+      }));
 
       const material = await updateMaterial({
-        id: params.id,
+        id: params.id as string,
         shopDomain: session.shop,
         materialName,
         totalWeight,
-        weightUnit,
-        threshold: threshold ? parseFloat(threshold) : undefined,
-        variantAttribute: variantAttribute || undefined,
-        variantValue: variantValue || undefined,
+        weightUnit: weightUnit as WeightUnit,
+        threshold: thresholdStr ? parseFloat(thresholdStr.toString()) : undefined,
         variants: processedVariants,
       });
 
@@ -284,11 +278,11 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
         { status: 400 }
       );
     }
-  } catch (error: any) {
-    console.error("Error updating material:", error);
+  } catch (error) {
+    console.error('Action: Error:', error);
     return json(
-      { status: "error", error: error.message || "Failed to update material" },
-      { status: 400 }
+      { status: "error", error: "An unexpected error occurred" },
+      { status: 500 }
     );
   }
 };
@@ -305,110 +299,61 @@ export default function EditMaterial() {
 
   const [materialName, setMaterialName] = useState(initialMaterial.materialName);
   const [totalWeight, setTotalWeight] = useState(initialMaterial.totalWeight.toString());
-  const [weightUnit, setWeightUnit] = useState(initialMaterial.weightUnit);
+  const [weightUnit, setWeightUnit] = useState<WeightUnit>((initialMaterial.weightUnit as WeightUnit) || "kg");
   const [threshold, setThreshold] = useState(initialMaterial.threshold?.toString() || "");
-  const [variantAttribute, setVariantAttribute] = useState(initialMaterial.variantAttribute || "");
-  const [variantValue, setVariantValue] = useState(initialMaterial.variantValue || "");
-  const [material, setMaterial] = useState(initialMaterial);
-  const [selectedVariants, setSelectedVariants] = useState(
-    initialMaterial.variants.map(v => ({
-      id: v.variantId,
-      consumptionRequirement: v.consumptionRequirement
+  const [selectedVariants, setSelectedVariants] = useState<SelectedVariant[]>(
+    initialMaterial.variants.map((variant: any) => ({
+      id: variant.variantId,
+      variantName: variant.variantName,
+      consumptionRequirement: variant.consumptionRequirement,
+      unitWeightUnit: (variant.unitWeightUnit as WeightUnit) || "kg"
     }))
   );
-  const [showErrorToast, setShowErrorToast] = useState(false);
+
+  const [toastActive, setToastActive] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastError, setToastError] = useState(false);
 
   useEffect(() => {
-    if (actionData?.status === "error") {
-      setShowErrorToast(true);
+    if (actionData) {
+      if (actionData.status === "success") {
+        setToastMessage("Material updated successfully");
+        setToastError(false);
+      } else {
+        setToastMessage(actionData.error);
+        setToastError(true);
+      }
+      setToastActive(true);
     }
   }, [actionData]);
 
   const handleSubmit = useCallback(() => {
-    if (!materialName || !totalWeight || !weightUnit) {
-      setShowErrorToast(true);
-      return;
-    }
-
-    console.log('Current material state:', material);
-    console.log('Selected variants before submit:', selectedVariants);
-
     const formData = new FormData();
     formData.append("materialName", materialName);
     formData.append("totalWeight", totalWeight);
     formData.append("weightUnit", weightUnit);
-    
     if (threshold) {
       formData.append("threshold", threshold);
     }
-    if (variantAttribute) {
-      formData.append("variantAttribute", variantAttribute);
-    }
-    if (variantValue) {
-      formData.append("variantValue", variantValue);
-    }
-    
-    // Include variant names from the current material state
-    const validatedVariants = selectedVariants.map(v => {
-      // Find the variant in material.variants to get its name
-      const materialVariant = material.variants.find(mv => mv.variantId === v.id);
-      // If not found in material variants, look in shopifyVariants
-      const shopifyVariant = shopifyVariants.find((sv: typeof shopifyVariants[0]) => sv.variantId === v.id);
-      
-      console.log('Processing variant:', {
-        id: v.id,
-        materialVariant,
-        shopifyVariant
-      });
-
-      return {
-        ...v,
-        variantName: materialVariant?.variantName || shopifyVariant?.variantName,
-        consumptionRequirement: v.consumptionRequirement || 0
-      };
-    });
-    
-    console.log('Validated variants before save:', validatedVariants);
-    formData.append("selectedVariants", JSON.stringify(validatedVariants));
+    formData.append("selectedVariants", JSON.stringify(selectedVariants));
 
     submit(formData, { method: "post" });
-  }, [materialName, totalWeight, weightUnit, threshold, variantAttribute, variantValue, selectedVariants, material, shopifyVariants, submit]);
+  }, [materialName, totalWeight, weightUnit, threshold, selectedVariants, submit]);
 
   const handleVariantSelect = useCallback((variantId: string) => {
-    setSelectedVariants((prev) => {
-      const isSelected = prev.some((v) => v.id === variantId);
-      if (isSelected) {
-        return prev.filter((v) => v.id !== variantId);
-      }
-      
-      // Find the variant in shopifyVariants to get its name
-      const shopifyVariant = shopifyVariants.find((v: typeof shopifyVariants[0]) => v.variantId === variantId);
-      if (!shopifyVariant) return prev;
-
-      // Add to selectedVariants with consumption requirement
-      return [...prev, { id: variantId, consumptionRequirement: 0 }];
-    });
-
-    // Also update the material.variants state when adding a new variant
-    if (!material.variants.some((v: SerializedMaterialVariant) => v.variantId === variantId)) {
-      const shopifyVariant = shopifyVariants.find((v: typeof shopifyVariants[0]) => v.variantId === variantId);
+    if (!initialMaterial.variants.some((v) => v.variantId === variantId)) {
+      const shopifyVariant = shopifyVariants.find((v: ShopifyVariant) => v.variantId === variantId);
       if (shopifyVariant) {
-        setMaterial(prev => ({
-          ...prev,
-          variants: [...prev.variants, {
-            id: '',  // This will be set by the database
-            materialId: material.id,
-            variantId: variantId,
-            variantName: shopifyVariant.variantName,
-            unitWeight: 0,
-            consumptionRequirement: 0,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          }]
-        }));
+        const newVariant: SelectedVariant = {
+          id: variantId,
+          variantName: shopifyVariant.variantName,
+          consumptionRequirement: 0,
+          unitWeightUnit: weightUnit
+        };
+        setSelectedVariants(prev => [...prev, newVariant]);
       }
     }
-  }, [material, shopifyVariants]);
+  }, [initialMaterial.variants, shopifyVariants, weightUnit]);
 
   const handleConsumptionUpdate = useCallback((variantId: string, consumption: string) => {
     setSelectedVariants((prev) =>
@@ -420,16 +365,21 @@ export default function EditMaterial() {
     );
   }, []);
 
-  const handleUnlinkVariant = useCallback((variantId: string) => {
-    setSelectedVariants((prev) => prev.filter((v) => v.id !== variantId));
-    
-    setMaterial((prev) => ({
-      ...prev,
-      variants: prev.variants.filter((v) => v.variantId !== variantId)
-    }));
+  const handleUnitWeightUnitUpdate = useCallback((variantId: string, unit: WeightUnit) => {
+    setSelectedVariants((prev) =>
+      prev.map((v) =>
+        v.id === variantId
+          ? { ...v, unitWeightUnit: unit }
+          : v
+      )
+    );
   }, []);
 
-  const linkedVariantRows = material.variants.map((variant) => [
+  const handleUnlinkVariant = useCallback((variantId: string) => {
+    setSelectedVariants((prev) => prev.filter((v) => v.id !== variantId));
+  }, []);
+
+  const linkedVariantRows = initialMaterial.variants.map((variant) => [
     variant.variantName,
     variant.consumptionRequirement.toString() + " " + weightUnit,
     <ButtonGroup key={variant.variantId}>
@@ -445,15 +395,15 @@ export default function EditMaterial() {
   return (
     <Page
       title="Edit Material"
-      backAction={{ content: "Back to Material", url: `/app/materials/${material.id}` }}
+      backAction={{ content: "Back to Material", url: `/app/materials/${initialMaterial.id}` }}
     >
       <Layout>
         <Layout.Section>
-          {showErrorToast && (
+          {toastActive && (
             <Toast
-              content={actionData?.status === "error" ? actionData.error : "Please fill in all required fields"}
-              error
-              onDismiss={() => setShowErrorToast(false)}
+              content={toastMessage}
+              error={toastError}
+              onDismiss={() => setToastActive(false)}
             />
           )}
 
@@ -478,10 +428,11 @@ export default function EditMaterial() {
                         autoComplete="off"
                       />
                       <Select
-                        label="Weight Unit*"
+                        label="Weight Unit"
                         options={WEIGHT_UNITS}
                         value={weightUnit}
-                        onChange={setWeightUnit}
+                        onChange={(value) => setWeightUnit(value as WeightUnit)}
+                        name="weightUnit"
                       />
                     </FormLayout.Group>
                     <TextField
@@ -492,43 +443,30 @@ export default function EditMaterial() {
                       autoComplete="off"
                       helpText="Set a minimum threshold for low stock alerts"
                     />
-                    <FormLayout.Group>
-                      <TextField
-                        label="Variant Attribute"
-                        value={variantAttribute}
-                        onChange={setVariantAttribute}
-                        autoComplete="off"
-                        placeholder="e.g., Color, Size"
-                        helpText="The type of variant attribute to filter by"
-                      />
-                      <TextField
-                        label="Variant Value"
-                        value={variantValue}
-                        onChange={setVariantValue}
-                        autoComplete="off"
-                        placeholder="e.g., Red, Large"
-                        helpText="The specific value of the variant attribute"
-                      />
-                    </FormLayout.Group>
                   </FormLayout>
                 </BlockStack>
               </Card>
 
               <LinkedVariantsSection
-                variants={material.variants}
+                variants={initialMaterial.variants}
                 onUnlinkVariant={handleUnlinkVariant}
                 weightUnit={weightUnit}
               />
 
-              <VariantSelectorEdit
-                variants={shopifyVariants}
-                selectedVariants={selectedVariants}
-                onVariantSelect={handleVariantSelect}
-                onConsumptionUpdate={handleConsumptionUpdate}
-                variantAttribute={variantAttribute}
-                variantValue={variantValue}
-                weightUnit={weightUnit}
-              />
+              <Card>
+                <BlockStack gap="400">
+                  <Text as="h2" variant="headingMd">Linked Variants</Text>
+                  <VariantSelector
+                    variants={shopifyVariants}
+                    selectedVariants={selectedVariants}
+                    onVariantSelect={handleVariantSelect}
+                    onConsumptionUpdate={handleConsumptionUpdate}
+                    onUnitWeightUnitUpdate={handleUnitWeightUnitUpdate}
+                    weightUnit={weightUnit}
+                    materialQuantity={parseFloat(totalWeight)}
+                  />
+                </BlockStack>
+              </Card>
 
               <Button submit variant="primary">
                 Save Changes

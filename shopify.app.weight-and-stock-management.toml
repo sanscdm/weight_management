@@ -1,0 +1,48 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "c5bd06033731175844770b242ce6d022"
+application_url = "https://ensure-riding-workout-jenny.trycloudflare.com"
+embedded = true
+name = "weight-and-stock-management"
+handle = "weight-and-stock-management"
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2025-01"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/compliance"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/scopes_update" ]
+  uri = "/webhooks/app/scopes_update"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/cancelled" ]
+  uri = "/webhooks/orders/cancelled"
+
+  [[webhooks.subscriptions]]
+  topics = [ "orders/fulfilled" ]
+  uri = "/webhooks/orders/fulfilled"
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "read_inventory,read_locations,read_orders,read_products,write_inventory,write_products"
+
+[auth]
+redirect_urls = [
+  "https://ensure-riding-workout-jenny.trycloudflare.com/auth/callback",
+  "https://ensure-riding-workout-jenny.trycloudflare.com/auth/shopify/callback",
+  "https://ensure-riding-workout-jenny.trycloudflare.com/api/auth/callback"
+]
+
+[pos]
+embedded = false

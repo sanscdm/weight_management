@@ -15,6 +15,8 @@ import {
 import { authenticate } from "../shopify.server";
 import { getMaterial } from "../services/materialManagement.server";
 import type { Material, MaterialVariant, StockMovement } from "@prisma/client";
+import { estimateQuantity } from "../utils/weightConversion";
+import type { WeightUnit } from "../utils/weightConversion";
 
 interface MaterialWithVariants extends Material {
   variants: MaterialVariant[];
@@ -40,22 +42,32 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
 export default function MaterialDetails() {
   const { material } = useLoaderData<{ material: MaterialWithVariants }>();
   const navigate = useNavigate();
-  const variantRows = material.variants.map((variant) => [
-    variant.variantName,
-    `${variant.consumptionRequirement} ${variant.unitWeightUnit}`,
-    <Badge
-      key={variant.id}
-      tone={
-        material.runningBalance >= variant.consumptionRequirement
-          ? "success"
-          : "critical"
-      }
-    >
-      {material.runningBalance >= variant.consumptionRequirement
-        ? "Available"
-        : "Insufficient Material"}
-    </Badge>,
-  ]);
+  const variantRows = material.variants.map((variant) => {
+    const estimatedUnits = estimateQuantity(
+      material.runningBalance,
+      material.weightUnit as WeightUnit,
+      variant.consumptionRequirement,
+      variant.unitWeightUnit as WeightUnit
+    );
+
+    return [
+      variant.variantName,
+      `${variant.consumptionRequirement} ${variant.unitWeightUnit}`,
+      estimatedUnits.toString(),
+      <Badge
+        key={variant.id}
+        tone={
+          material.runningBalance >= variant.consumptionRequirement
+            ? "success"
+            : "critical"
+        }
+      >
+        {material.runningBalance >= variant.consumptionRequirement
+          ? "Available"
+          : "Insufficient Material"}
+      </Badge>,
+    ];
+  });
 
   const stockMovementRows = material.stockMovements.map((movement) => {
     const variant = material.variants.find(
@@ -117,10 +129,11 @@ export default function MaterialDetails() {
             <Text variant="headingMd" as="h3">Linked Variants</Text>
             <Box>
               <DataTable
-                columnContentTypes={["text", "text", "text"]}
+                columnContentTypes={["text", "text", "numeric", "text"]}
                 headings={[
                   "Variant Name",
                   "Weight per Unit",
+                  "Estimated Units",
                   "Status",
                 ]}
                 rows={variantRows}

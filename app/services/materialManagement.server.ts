@@ -807,4 +807,40 @@ export async function processMaterialAndInventory(
       }
     }
   });
+}
+
+export async function adjustMaterialStock(
+  materialId: string,
+  quantity: number,
+  type: 'ADJUSTMENT'
+) {
+  return prisma.$transaction(async (tx) => {
+    const material = await tx.material.findUnique({
+      where: { id: materialId }
+    });
+
+    if (!material) throw new Error('Material not found');
+
+    const newBalance = material.runningBalance + quantity;
+
+    if (newBalance < 0) throw new Error('Insufficient material stock');
+
+    // Update material running balance
+    const updatedMaterial = await tx.material.update({
+      where: { id: materialId },
+      data: { runningBalance: newBalance }
+    });
+
+    // Create stock movement record
+    await tx.stockMovement.create({
+      data: {
+        materialId,
+        type,
+        quantityChange: quantity,
+        remainingStock: newBalance,
+      }
+    });
+
+    return getMaterial(materialId);
+  });
 } 

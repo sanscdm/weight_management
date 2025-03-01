@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "c5bd06033731175844770b242ce6d022"
-application_url = "https://w-ha-china-influenced.trycloudflare.com"
+application_url = "https://matches-pupils-memphis-insulation.trycloudflare.com"
 embedded = true
 name = "weight-and-stock-management"
 handle = "weight-and-stock-management"
@@ -39,9 +39,9 @@ scopes = "read_inventory,read_locations,read_orders,read_products,write_inventor
 
 [auth]
 redirect_urls = [
-  "https://w-ha-china-influenced.trycloudflare.com/auth/callback",
-  "https://w-ha-china-influenced.trycloudflare.com/auth/shopify/callback",
-  "https://w-ha-china-influenced.trycloudflare.com/api/auth/callback"
+  "https://matches-pupils-memphis-insulation.trycloudflare.com/auth/callback",
+  "https://matches-pupils-memphis-insulation.trycloudflare.com/auth/shopify/callback",
+  "https://matches-pupils-memphis-insulation.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]

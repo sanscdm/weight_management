@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "c5bd06033731175844770b242ce6d022"
-application_url = "https://cuts-ferrari-beads-wv.trycloudflare.com"
+application_url = "https://journalist-dos-breed-gate.trycloudflare.com"
 embedded = true
 name = "weight-and-stock-management"
 handle = "weight-and-stock-management"
@@ -34,17 +34,16 @@ api_version = "2025-01"
   uri = "/webhooks/orders/fulfilled"
 
   [[webhooks.subscriptions]]
-  topics = [[ "orders/create"]]
-  uri = "/webhooks/orders/fulfilled"
-
-   [[webhooks.subscriptions]]
-  topics = [[ "orders/edit"]]
-  uri = "/webhooks/orders/edit"
+  topics = [ "orders/create" ]
+  uri = "/webhooks/orders/create"
 
   [[webhooks.subscriptions]]
-  topics = [[ "orders/cancel"]]
-  uri = "/webhooks/orders/cancel"
+  topics = [ "orders/edited" ]
+  uri = "/webhooks/orders/edited"
 
+  [[webhooks.subscriptions]]
+  topics = [ "orders/cancelled" ]
+  uri = "/webhooks/orders/cancel"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
@@ -52,9 +51,9 @@ scopes = "read_inventory,read_locations,read_orders,read_products,write_inventor
 
 [auth]
 redirect_urls = [
-  "https://cuts-ferrari-beads-wv.trycloudflare.com/auth/callback",
-  "https://cuts-ferrari-beads-wv.trycloudflare.com/auth/shopify/callback",
-  "https://cuts-ferrari-beads-wv.trycloudflare.com/api/auth/callback"
+  "https://journalist-dos-breed-gate.trycloudflare.com/auth/callback",
+  "https://journalist-dos-breed-gate.trycloudflare.com/auth/shopify/callback",
+  "https://journalist-dos-breed-gate.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]

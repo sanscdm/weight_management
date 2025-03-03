@@ -34,10 +34,11 @@ type MaterialStatus = 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK';
 type SerializedMaterial = SerializeFrom<MaterialWithVariants>;
 
 function getMaterialStatus(material: SerializedMaterial): MaterialStatus {
-  if (material.runningBalance <= 0) {
+  const availableWeight = material.totalWeight - material.weightCommitted;
+  if (availableWeight <= 0) {
     return 'OUT_OF_STOCK';
   }
-  if (material.threshold && material.runningBalance <= material.threshold) {
+  if (material.threshold && availableWeight <= material.threshold) {
     return 'LOW_STOCK';
   }
   return 'IN_STOCK';
@@ -70,21 +71,21 @@ export default function MaterialsList() {
       </Text>
     </Link>,
     `${material.totalWeight} ${material.weightUnit}`,
-    `${material.runningBalance} ${material.weightUnit}`,
+    `${material.weightCommitted} ${material.weightUnit}`,
     material.variants.length.toString(),
     <Badge
       key={material.id}
       tone={
-        material.runningBalance <= (material.threshold || 0)
+        material.totalWeight - material.weightCommitted <= (material.threshold || 0)
           ? "critical"
-          : material.runningBalance <= (material.threshold || 0) * 1.2
+          : material.totalWeight - material.weightCommitted <= (material.threshold || 0) * 1.2
           ? "warning"
           : "success"
       }
     >
-      {material.runningBalance <= (material.threshold || 0)
+      {material.totalWeight - material.weightCommitted <= (material.threshold || 0)
         ? "Out of Stock"
-        : material.runningBalance <= (material.threshold || 0) * 1.2
+        : material.totalWeight - material.weightCommitted <= (material.threshold || 0) * 1.2
         ? "Low Stock"
         : "In Stock"}
     </Badge>,
@@ -127,7 +128,7 @@ export default function MaterialsList() {
                 headings={[
                   "Material Name",
                   "Total Weight",
-                  "Running Balance",
+                  "Weight Committed",
                   "Linked Variants",
                   "Status",
                   "Actions"

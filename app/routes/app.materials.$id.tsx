@@ -158,7 +158,7 @@ export default function MaterialDetails() {
 
   const variantRows = material.variants.map((variant) => {
     const estimatedUnits = estimateQuantity(
-      material.runningBalance,
+      material.totalWeight - material.weightCommitted,
       material.weightUnit as WeightUnit,
       variant.consumptionRequirement,
       variant.unitWeightUnit as WeightUnit
@@ -171,12 +171,12 @@ export default function MaterialDetails() {
       <Badge
         key={variant.id}
         tone={
-          material.runningBalance >= variant.consumptionRequirement
+          material.totalWeight - material.weightCommitted >= variant.consumptionRequirement
             ? "success"
             : "critical"
         }
       >
-        {material.runningBalance >= variant.consumptionRequirement
+        {material.totalWeight - material.weightCommitted >= variant.consumptionRequirement
           ? "Available"
           : "Insufficient Material"}
       </Badge>,
@@ -225,7 +225,10 @@ export default function MaterialDetails() {
                   Total Weight: {material.totalWeight} {material.weightUnit}
                 </Text>
                 <Text variant="bodyMd" as="p">
-                  Running Balance: {material.runningBalance} {material.weightUnit}
+                  Weight Committed: {material.weightCommitted} {material.weightUnit}
+                </Text>
+                <Text variant="bodyMd" as="p">
+                  Available Weight: {material.totalWeight - material.weightCommitted} {material.weightUnit}
                 </Text>
                 <Text variant="bodyMd" as="p">
                   Threshold: {material.threshold || "Not set"} {material.weightUnit}
@@ -275,13 +278,26 @@ export default function MaterialDetails() {
                     </Grid.Cell>
                   </Grid>
                   {convertedQuantity !== null && (
-                    <Text as="p" variant="bodyMd" tone="subdued">
-                      Will {convertedQuantity >= 0 ? "add" : "remove"} {Math.abs(convertedQuantity)} {material.weightUnit} {convertedQuantity >= 0 ? "to" : "from"} stock
-                    </Text>
+                    <BlockStack gap="200">
+                      <Text as="p" variant="bodyMd" tone="subdued">
+                        Will {convertedQuantity >= 0 ? "add" : "remove"} {Math.abs(convertedQuantity)} {material.weightUnit} {convertedQuantity >= 0 ? "to" : "from"} total weight
+                      </Text>
+                      <Text as="p" variant="bodyMd">
+                        Current total weight: {material.totalWeight} {material.weightUnit}
+                      </Text>
+                      <Text as="p" variant="bodyMd">
+                        Weight committed: {material.weightCommitted} {material.weightUnit}
+                      </Text>
+                      <Text as="p" variant="bodyMd">
+                        Available weight: {material.totalWeight - material.weightCommitted} {material.weightUnit}
+                      </Text>
+                      {convertedQuantity < 0 && Math.abs(convertedQuantity) > (material.totalWeight - material.weightCommitted) && (
+                        <Banner tone="warning">
+                          Warning: This adjustment will result in insufficient available weight for committed orders.
+                        </Banner>
+                      )}
+                    </BlockStack>
                   )}
-                  <Text as="p" variant="bodyMd">
-                    Current balance: {material.runningBalance} {material.weightUnit}
-                  </Text>
                   <InlineStack gap="300">
                     <Button submit disabled={!quantity}>Apply Adjustment</Button>
                   </InlineStack>
@@ -292,10 +308,10 @@ export default function MaterialDetails() {
         </Layout.Section>
 
         <Layout.Section>
-          {material.runningBalance <= (material.threshold || 0) && (
+          {material.totalWeight - material.weightCommitted <= (material.threshold || 0) && (
             <Banner tone="critical" title="Low Stock Alert">
               <p>
-                The material stock is below the threshold. Consider restocking
+                The available material weight is below the threshold. Consider restocking
                 soon.
               </p>
             </Banner>

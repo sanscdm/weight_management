@@ -1,3 +1,6 @@
+
+ALWAYS ASK FOR CLARIFICATION BEFORE YOU MODIFY THE UI!
+
 Core Logic Refinement
 When an order is confirmed/paid
 
@@ -56,4 +59,31 @@ If a supplier restocks or if weight needs manual adjustments, an admin should be
 Acceptance Criteria:
 ✔️ Admin can modify total weight.
 ✔️ System re-evaluates stock status based on new values.
+
+Shopify App UI → Should display weight available, weight committed, and total weight per product.
+
+
+To make a product variant unavailable in Shopify regardless of its quantity, you can use the productVariantUpdate mutation to set the availableForSale field to false. This ensures the variant is not available for purchase, irrespective of its inventory levels.
+
+mutation UpdateVariantAvailability {
+  productVariantUpdate(input: {
+    id: "gid://shopify/ProductVariant/123456789",
+    availableForSale: false
+  }) {
+    productVariant {
+      id
+      availableForSale
+    }
+    userErrors {
+      field
+      message
+    }
+  }
+}
+
+Explanation:
+Replace "gid://shopify/ProductVariant/123456789" with the ID of the variant you want to make unavailable.
+The availableForSale field is set to false to make the variant unavailable for purchase.
+The response includes the updated variant's ID and its availableForSale status, along with any potential user errors.
+This approach ensures that the variant is unavailable for customers, regardless of its inventory quantity.
 

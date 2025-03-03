@@ -6,7 +6,7 @@ import type { Material } from "@prisma/client";
 export const action = async ({ request }: ActionFunctionArgs) => {
   const { topic, shop, payload, admin } = await authenticate.webhook(request);
 
-  console.log('Received fulfillment webhook for shop:', shop);
+  console.log('Received order creation webhook for shop:', shop);
   console.log('Webhook topic:', topic);
 
   if (!topic || !shop || !payload || !admin?.graphql) {
@@ -18,7 +18,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     const processedItems = [];
     const skippedItems = [];
 
-    // For each line item, update material weights
+    // For each line item, commit required weight
     for (const item of lineItems) {
       const variantId = item.variant_id.toString();
       const quantity = item.quantity || 0;
@@ -32,7 +32,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
         // Process each material variant
         for (const materialVariant of materialVariants) {
-          const weightToDeduct = materialVariant.consumptionRequirement * quantity;
+          const weightToCommit = materialVariant.consumptionRequirement * quantity;
           const currentMaterial = await prisma.material.findUnique({
             where: { id: materialVariant.materialId }
           });
@@ -41,17 +41,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             throw new Error(`Material not found for variant ${variantId}`);
           }
 
+          // Check if we have enough weight available
+          const newCommittedWeight = currentMaterial.weightCommitted + weightToCommit;
+          if (newCommittedWeight > currentMaterial.totalWeight) {
+            throw new Error(`Insufficient weight available for variant ${variantId}`);
+          }
+
           // Update material weights
           const updatedMaterial = await prisma.material.update({
             where: { id: materialVariant.materialId },
             data: {
-              totalWeight: currentMaterial.totalWeight - weightToDeduct,
+              weightCommitted: newCommittedWeight,
               stockMovements: {
                 create: {
-                  type: 'FULFILLMENT',
+                  type: 'ORDER_CREATED',
                   variantId,
-                  quantityChange: -weightToDeduct,
-                  remainingStock: currentMaterial.totalWeight - weightToDeduct,
+                  quantityChange: weightToCommit,
+                  remainingStock: currentMaterial.totalWeight,
                   orderId: payload.order_id?.toString()
                 }
               }
@@ -62,12 +68,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
             materialId: materialVariant.materialId,
             variantId,
             quantity,
-            weightDeducted: weightToDeduct,
-            remainingWeight: updatedMaterial.totalWeight
+            weightCommitted: weightToCommit,
+            totalCommitted: updatedMaterial.weightCommitted
           });
 
-          // Check if we need to update variant availability based on remaining weight
-          if (updatedMaterial.totalWeight <= (updatedMaterial.threshold || 0)) {
+          // Check if we need to update variant availability
+          const remainingWeight = currentMaterial.totalWeight - newCommittedWeight;
+          if (remainingWeight <= (currentMaterial.threshold || 0)) {
             const variantGid = `gid://shopify/ProductVariant/${variantId}`;
             await admin.graphql(
               `mutation {

@@ -426,6 +426,8 @@ export default function EditMaterial() {
                         onChange={setTotalWeight}
                         type="number"
                         autoComplete="off"
+                        disabled={selectedVariants.length > 0}
+                        helpText={selectedVariants.length > 0 ? "Total weight cannot be modified when variants are linked" : undefined}
                       />
                       <Select
                         label="Weight Unit"

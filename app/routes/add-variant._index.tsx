@@ -17,8 +17,9 @@ import { json, redirect } from "@remix-run/node";
 import type { ActionFunctionArgs } from "@remix-run/node";
 import { useLoaderData, useSubmit, useNavigate } from "@remix-run/react";
 import polarisTranslations from "@shopify/polaris/locales/en.json";
-import { createMaterialStock } from "../services/stockManagement.server";
 import polarisStyles from "@shopify/polaris/build/esm/styles.css?url";
+import { createMaterial } from "app/services/materialManagement.server";
+import { WeightUnit } from "app/utils/weightConversion";
 
 type ShopifyVariant = {
   id: string;
@@ -73,7 +74,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const formData = await request.formData();
   
   const variantId = formData.get("variantId");
@@ -87,13 +88,18 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   try {
-    await createMaterialStock({
-      variantId: variantId.toString(),
-      colorName: formData.get("colorName")?.toString() || "",
-      materialQuantity: parseFloat(materialQuantity.toString()),
+    await createMaterial({
+      shopDomain: session.shop,
+      materialName: `Material for ${formData.get("colorName")?.toString() || "Variant"}`,
+      totalWeight: parseFloat(materialQuantity.toString()),
+      weightUnit: weightUnit.toString() as WeightUnit,
       threshold: parseFloat(threshold.toString()),
-      variantWeight: parseFloat(variantWeight.toString()),
-      weightUnit: weightUnit.toString(),
+      variants: [{
+        id: variantId.toString(),
+        consumptionRequirement: parseFloat(variantWeight.toString()),
+        unitWeightUnit: weightUnit.toString() as WeightUnit
+      }],
+      request
     });
 
     return redirect("/app");

@@ -69,22 +69,48 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           // Check if we need to update variant availability based on remaining weight
           if (updatedMaterial.totalWeight <= (updatedMaterial.threshold || 0)) {
             const variantGid = `gid://shopify/ProductVariant/${variantId}`;
-            await admin.graphql(
-              `mutation {
-                productVariantUpdate(input: {
-                  id: "${variantGid}",
-                  availableForSale: false
-                }) {
-                  productVariant {
+            // First, get the product ID for this variant
+            const variantResponse = await admin.graphql(
+              `query getVariantProduct($id: ID!) {
+                productVariant(id: $id) {
+                  id
+                  product {
                     id
-                    availableForSale
+                  }
+                }
+              }`,
+              { variables: { id: variantGid } }
+            );
+            
+            const variantData = await variantResponse.json();
+            const productId = variantData.data.productVariant.product.id;
+
+            // Now update the variant availability using productSet
+            await admin.graphql(
+              `mutation productSetAvailability($input: ProductSetInput!) {
+                productSet(input: $input) {
+                  productSetOperation {
+                    status
                   }
                   userErrors {
                     field
                     message
                   }
                 }
-              }`
+              }`,
+              {
+                variables: {
+                  input: {
+                    id: productId,
+                    variants: [
+                      {
+                        id: variantGid,
+                        availableForSale: false
+                      }
+                    ]
+                  }
+                }
+              }
             );
           }
         }

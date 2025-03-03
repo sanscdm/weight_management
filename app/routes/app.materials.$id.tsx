@@ -24,6 +24,7 @@ import { getMaterial, processMaterialAndInventory, adjustMaterialStock } from ".
 import type { Material, MaterialVariant, StockMovement } from "@prisma/client";
 import { estimateQuantity, convertWeight, type WeightUnit } from "../utils/weightConversion";
 import { useState, useCallback, useEffect } from "react";
+import { PrismaClient } from "@prisma/client";
 
 interface MaterialWithVariants extends Material {
   variants: MaterialVariant[];
@@ -36,6 +37,8 @@ const WEIGHT_UNITS: { label: string; value: WeightUnit }[] = [
   { label: "Pounds (lb)", value: "lb" },
   { label: "Ounces (oz)", value: "oz" },
 ];
+
+const prisma = new PrismaClient();
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -72,22 +75,97 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
     // Convert the quantity to the material's unit
     const convertedQuantity = convertWeight(quantity, fromUnit, toUnit);
 
+    // Get current material state
+    const currentMaterial = await prisma.material.findUnique({
+      where: { id: materialId }
+    });
+
+    if (!currentMaterial) {
+      return json({ error: "Material not found" }, { status: 404 });
+    }
+
+    // For negative adjustments, check if we have enough available weight
+    if (convertedQuantity < 0) {
+      const availableWeight = currentMaterial.totalWeight - currentMaterial.weightCommitted;
+      if (Math.abs(convertedQuantity) > availableWeight) {
+        return json({ 
+          error: "Cannot reduce total weight below committed amount" 
+        }, { status: 400 });
+      }
+    }
+
+    // Update material weights
+    const updatedMaterial = await prisma.material.update({
+      where: { id: materialId },
+      data: {
+        totalWeight: currentMaterial.totalWeight + convertedQuantity,
+        stockMovements: {
+          create: {
+            type,
+            variantId,
+            quantityChange: convertedQuantity,
+            remainingStock: currentMaterial.totalWeight + convertedQuantity,
+            orderId: null
+          }
+        }
+      }
+    });
+
+    // Check if we need to update variant availability
     if (variantId) {
-      // If a variant is selected, use processMaterialAndInventory
-      await processMaterialAndInventory(
-        materialId,
-        variantId,
-        convertedQuantity,
-        type,
-        admin
-      );
-    } else {
-      // For general adjustments without a variant
-      await adjustMaterialStock(
-        materialId,
-        convertedQuantity,
-        type
-      );
+      const availableWeight = updatedMaterial.totalWeight - currentMaterial.weightCommitted;
+      const materialVariant = await prisma.materialVariant.findUnique({
+        where: { variantId }
+      });
+
+      if (materialVariant) {
+        const shouldBeAvailable = availableWeight >= materialVariant.consumptionRequirement;
+        const variantGid = `gid://shopify/ProductVariant/${variantId}`;
+
+        // First, get the product ID for this variant
+        const variantResponse = await admin.graphql(
+          `query getVariantProduct($id: ID!) {
+            productVariant(id: $id) {
+              id
+              product {
+                id
+              }
+            }
+          }`,
+          { variables: { id: variantGid } }
+        );
+        
+        const variantData = await variantResponse.json();
+        const productId = variantData.data.productVariant.product.id;
+
+        // Now update the variant availability using productSet
+        await admin.graphql(
+          `mutation productSetAvailability($input: ProductSetInput!) {
+            productSet(input: $input) {
+              productSetOperation {
+                status
+              }
+              userErrors {
+                field
+                message
+              }
+            }
+          }`,
+          {
+            variables: {
+              input: {
+                id: productId,
+                variants: [
+                  {
+                    id: variantGid,
+                    availableForSale: shouldBeAvailable
+                  }
+                ]
+              }
+            }
+          }
+        );
+      }
     }
 
     return json({ success: true });

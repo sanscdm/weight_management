@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "c5bd06033731175844770b242ce6d022"
-application_url = "https://journalist-dos-breed-gate.trycloudflare.com"
+application_url = "https://toys-accessory-durable-concerning.trycloudflare.com"
 embedded = true
 name = "weight-and-stock-management"
 handle = "weight-and-stock-management"
@@ -51,9 +51,9 @@ scopes = "read_inventory,read_locations,read_orders,read_products,write_inventor
 
 [auth]
 redirect_urls = [
-  "https://journalist-dos-breed-gate.trycloudflare.com/auth/callback",
-  "https://journalist-dos-breed-gate.trycloudflare.com/auth/shopify/callback",
-  "https://journalist-dos-breed-gate.trycloudflare.com/api/auth/callback"
+  "https://toys-accessory-durable-concerning.trycloudflare.com/auth/callback",
+  "https://toys-accessory-durable-concerning.trycloudflare.com/auth/shopify/callback",
+  "https://toys-accessory-durable-concerning.trycloudflare.com/api/auth/callback"
 ]
 
 [pos]
